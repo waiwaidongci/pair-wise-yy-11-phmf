@@ -1,127 +1,115 @@
+import { useMemo, useState } from "react";
 import "./styles.css";
+import { StoreProvider, useStore } from "./state/store";
+import { RegistrationForm } from "./components/RegistrationForm";
+import { QueuePanel } from "./components/QueuePanel";
+import { HoldingPanel } from "./components/HoldingPanel";
+import { SignOffModal } from "./components/SignOffModal";
+import { BottleHistory } from "./components/BottleHistory";
+import { LedgerPanel } from "./components/LedgerPanel";
+import { hydroStatus } from "./domain/rules";
+import type { WorkOrder } from "./domain/types";
 
-const project = {
-  "sourceNo": 5,
-  "id": "hxyfront-62010",
-  "port": 62010,
-  "title": "潜水气瓶充填记录",
-  "domain": "潜水气瓶充填",
-  "prompt": "我想做一个给潜水店使用的气瓶充填前端系统，工作人员可以记录气瓶编号、容积、检验有效期、残压、目标压力、氧含量、氦含量、充填方式和操作员。页面需要有待充填队列、混合气比例提示、气瓶检验过期提醒、充填完成签收和单个气瓶历史记录。",
-  "palette": [
-    "#075985",
-    "#0d9488",
-    "#f59e0b"
-  ],
-  "metrics": [
-    "待充填",
-    "过期提醒",
-    "平均氧含量",
-    "签收单"
-  ],
-  "filters": [
-    "空气",
-    "高氧",
-    "Trimix",
-    "待检验"
-  ],
-  "fields": [
-    "气瓶编号",
-    "容积",
-    "检验有效期",
-    "残压",
-    "目标压力",
-    "氧含量"
-  ],
-  "records": [
-    [
-      "TANK-204",
-      "12L铝瓶",
-      "残压55bar，目标200bar",
-      "空气充填"
+type Tab = "work" | "history" | "ledger";
+
+function Metrics() {
+  const { state, queued, holding } = useStore();
+  const fills = state.ledger.filter((e) => e.kind === "fill");
+  const nearCount = queued.filter((o) => hydroStatus(o.hydroDue).near).length;
+  const avgO2 = fills.length
+    ? (fills.reduce((s, e) => s + (e.kind === "fill" ? e.measuredO2 : 0), 0) / fills.length).toFixed(1)
+    : "—";
+
+  const metrics = [
+    { label: "待充填", value: queued.length, note: nearCount ? `含 ${nearCount} 瓶临期` : "按水检天数排序" },
+    { label: "待处理区", value: holding.length, note: "水检过期瓶" },
+    { label: "实测平均氧含量", value: avgO2 === "—" ? "—" : `${avgO2}%`, note: "来自已签收记录" },
+    { label: "签收凭证", value: fills.length, note: "不可覆盖" },
+  ];
+
+  return (
+    <section className="metrics">
+      {metrics.map((m) => (
+        <article key={m.label}>
+          <small>{m.label}</small>
+          <strong>{m.value}</strong>
+          <span className="metric-note">{m.note}</span>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function Workspace() {
+  const [tab, setTab] = useState<Tab>("work");
+  const [signing, setSigning] = useState<WorkOrder | null>(null);
+  const { state } = useStore();
+
+  const tabs: Array<{ key: Tab; label: string; badge?: number }> = useMemo(
+    () => [
+      { key: "work", label: "作业面" },
+      { key: "history", label: "单瓶档案 / 历史" },
+      { key: "ledger", label: `充填台账 (${state.ledger.length})` },
     ],
-    [
-      "TANK-219",
-      "11L钢瓶",
-      "EAN32",
-      "待客户签收"
-    ],
-    [
-      "TANK-231",
-      "双瓶组",
-      "检验期剩余12天",
-      "标记提醒"
-    ]
-  ]
-};
+    [state.ledger.length],
+  );
+
+  return (
+    <>
+      <nav className="tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            className={tab === t.key ? "active" : ""}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "work" && (
+        <div className="work-grid">
+          <RegistrationForm />
+          <div className="work-columns">
+            <HoldingPanel />
+            <QueuePanel onSign={setSigning} />
+          </div>
+        </div>
+      )}
+      {tab === "history" && <BottleHistory />}
+      {tab === "ledger" && <LedgerPanel />}
+
+      {signing && (
+        <SignOffModal
+          // 工单签收后会从队列移除，关闭即结束
+          order={signing}
+          onClose={() => setSigning(null)}
+        />
+      )}
+    </>
+  );
+}
 
 function App() {
   return (
-    <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
-
-      <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[28, 6, 14, 91][index] ?? 10}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}分类</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
+    <StoreProvider>
+      <main className="app">
+        <section className="hero">
+          <p>hxyfront-62010 · 气瓶充填作业面</p>
+          <h1>潜水气瓶充填记录</h1>
+          <span>
+            登记瓶号、水容积、水检到期日、余压与目标氧氦比；队列按水检剩余天数排序，到期瓶自动进入待处理区。
+            开工按余压与目标比生成分压步骤（余压超限先泄压），完成后凭实测氧氦比、气源批次与操作员签收，签收记录不可覆盖。
+          </span>
         </section>
-      </section>
-
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>近期记录</p>
-            <h2>工作台摘要</h2>
-          </div>
-          <button>导出CSV</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
+        <Metrics />
+        <Workspace />
+        <footer className="foot">
+          规则（分压/排序/校验）、台账（只追加凭证）、档案（气瓶信息与单瓶历史）分层独立实现 · 数据保存在浏览器本地
+        </footer>
+      </main>
+    </StoreProvider>
   );
 }
 
